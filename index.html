@@ -89,7 +89,6 @@
         .setting-card { background: #1a2235; border: 1px solid #232e46; border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
         .setting-card .title { font-weight: 700; font-size: 1rem; color: #ccd6f0; }
         .setting-card .desc { font-size: 0.8rem; color: #8892b0; line-height: 1.4; background: #0f172a; padding: 8px 12px; border-radius: 8px; border-left: 3px solid var(--accent); }
-        .setting-card .example { font-size: 0.75rem; color: #a5b4fc; background: #0f172a; padding: 6px 10px; border-radius: 6px; margin-top: 4px; }
         .setting-card .actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
         .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.75); backdrop-filter: blur(6px); z-index: 1000; align-items: center; justify-content: center; }
@@ -119,7 +118,6 @@
 
     <div class="dashboard">
         <div id="dataContainer" class="data-grid"></div>
-
         <div class="settings-section">
             <h2><i class="fas fa-sliders-h"></i> 合约设置</h2>
             <div id="settingsContainer" class="settings-grid"></div>
@@ -133,7 +131,7 @@
 <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
 <script>
     (() => {
-        // 完整 ABI，包含稳定器所有公开接口
+        // ABI 包含所有可能用到的函数（部分早期合约可能没有稳定器接口，通过 safeCall 容错）
         const ABI = [
             "function name() view returns (string)",
             "function symbol() view returns (string)",
@@ -177,7 +175,6 @@
             "function _rewardList(address) view returns (bool)",
             "function _feeWhiteList(address) view returns (bool)",
             "function isReward(address) view returns (uint256)",
-            // 稳定器公开变量
             "function stabilizerEnabled() view returns (bool)",
             "function stabilizerPaused() view returns (bool)",
             "function priceLow() view returns (uint256)",
@@ -191,19 +188,6 @@
             "function autoStartTime() view returns (uint256)",
             "function autoEndTime() view returns (uint256)",
             "function currentTWAP() view returns (uint256)",
-            // 稳定器设置函数
-            "function setStabilizerEnabled(bool)",
-            "function setStabilizerPaused(bool)",
-            "function setPriceRange(uint256,uint256)",
-            "function setStabilizerN(uint256)",
-            "function setStabilizerM(uint256)",
-            "function setStabilizerCooldown(uint256)",
-            "function setPriceThreshold(uint256)",
-            "function setProjectWallet(address)",
-            "function setMaxSingleOpBps(uint256)",
-            "function setAutoTime(uint256,uint256)",
-            "function resetStabilizerCycle()",
-            // 原有操作函数
             "function launch()",
             "function setAntiSYNCEnable(bool)",
             "function setkb(uint256)",
@@ -226,6 +210,17 @@
             "function renounceOwnership()",
             "function setFundAddress(address)",
             "function setClaims(address, uint256)",
+            "function setStabilizerEnabled(bool)",
+            "function setStabilizerPaused(bool)",
+            "function setPriceRange(uint256,uint256)",
+            "function setStabilizerN(uint256)",
+            "function setStabilizerM(uint256)",
+            "function setStabilizerCooldown(uint256)",
+            "function setPriceThreshold(uint256)",
+            "function setProjectWallet(address)",
+            "function setMaxSingleOpBps(uint256)",
+            "function setAutoTime(uint256,uint256)",
+            "function resetStabilizerCycle()",
             "function getAmountsOut(uint, address[]) view returns (uint[])",
             "function getReserves() view returns (uint112, uint112, uint32)",
             "function token0() view returns (address)"
@@ -239,9 +234,9 @@
         const $ = id => document.getElementById(id);
         const parseUnits = (v, u=18) => { try { return ethers.utils.parseUnits(v.toString(), u); } catch { return ethers.BigNumber.from(0); } };
         const formatUnits = (v, u=18) => { try { return ethers.utils.formatUnits(v, u); } catch { return '0'; } };
-        const notify = (msg, err=false, detail='') => {
+        const notify = (msg, err=false) => {
             const n = $('notification');
-            n.innerHTML = msg + (detail ? `<br><small style="color:#94a3b8;">${detail}</small>` : '');
+            n.innerHTML = msg;
             n.style.background = err ? '#f0476e' : '#2dd4bf';
             n.style.display = 'block';
             setTimeout(() => n.style.display = 'none', 5000);
@@ -254,24 +249,7 @@
         window.openModal = id => $(id)?.classList.add('active');
         window.closeModal = id => $(id)?.classList.remove('active');
 
-        function translateError(reason) {
-            if (!reason) return '未知错误';
-            if (reason.includes('disabled')) return '功能被禁用（隐藏开关未开启）';
-            if (reason.includes('!owner')) return '只有 Owner 才能操作';
-            if (reason.includes('balanceNotEnough')) return '余额不足';
-            if (reason.includes('wallet limit')) return '超过最大钱包限制';
-            if (reason.includes('not allowed')) return '地址在黑名单中';
-            if (reason.includes('cooldown')) return '冷却时间未到';
-            if (reason.includes('greater than 0')) return '数值必须大于0';
-            if (reason.includes('!<=5')) return '空投地址数不能超过5';
-            if (reason.includes('!<=100!')) return '燃烧率不能超过100';
-            if (reason.includes('>25!')) return '添加流动税不能超过2500';
-            if (reason.includes('buy!<25')) return '买入税率组之和必须小于2500';
-            if (reason.includes('sell!<25')) return '卖出税率组之和必须小于2500';
-            return reason;
-        }
-
-        async function sendTx(txPromise, errorDetail = '') {
+        async function sendTx(txPromise, errorMsg = '') {
             try {
                 const tx = await txPromise;
                 notify(`✅ 交易已发送: ${tx.hash.slice(0,12)}...`);
@@ -280,15 +258,15 @@
                 await loadData();
             } catch (e) {
                 const reason = e.reason || e.message || '';
-                notify('❌ ' + translateError(reason), true, errorDetail);
+                notify('❌ ' + (errorMsg || reason), true);
             }
         }
 
         async function connect() {
             const addr = $('contractAddress').value.trim();
-            if (!ethers.utils.isAddress(addr)) return alert('请输入有效的合约地址（0x 开头，42 个字符）。');
+            if (!ethers.utils.isAddress(addr)) return alert('请输入有效的合约地址');
             localStorage.setItem('panda_addr', addr);
-            if (!window.ethereum) return alert('请安装欧易钱包或MetaMask。');
+            if (!window.ethereum) return alert('请安装 MetaMask 或欧易钱包');
             provider = new ethers.providers.Web3Provider(window.ethereum);
             await provider.send("eth_requestAccounts", []);
             signer = provider.getSigner();
@@ -297,55 +275,124 @@
             await loadData();
         }
 
+        // 核心：安全读取函数，失败返回 null 或默认值
+        async function safeCall(methodName, ...args) {
+            try {
+                if (!contract || typeof contract[methodName] !== 'function') return null;
+                return await contract[methodName](...args);
+            } catch (e) {
+                console.warn(`⚠️ ${methodName} 读取失败:`, e.reason || e.message);
+                return null;
+            }
+        }
+
         async function loadData() {
             if (!contract) return;
-            const [name, sym, dec, total, circ, owner, fund, router, curr, pair, dist, maxW,
-                start, lastBurn, lpRate, lpFreq, sellRate, airNumbs, kb, price, minted, amt, mintLim, fundAmt,
-                offTrade, killBlock, changeTax, airEn, mintEn, pauseEn, rewardEn, walletLim, pause, anti,
-                currIsEth, deadAddr, pairBalance,
-                // 稳定器变量
-                stabEnabled, stabPaused, priceLow, priceHigh, stabN, stabM, stabCooldown, priceThresh,
-                projWallet, maxOpBps, autoStart, autoEnd, currentTWAP
-            ] = await Promise.all([
-                contract.name(), contract.symbol(), contract.decimals(), contract.totalSupply(),
-                contract.getCirculatingSupply(), contract.owner(), contract.fundAddress(),
-                contract._swapRouter(), contract.currency(), contract._mainPair(),
-                contract._tokenDistributor(), contract.maxWalletAmount(), contract.startTradeBlock(),
-                contract.lastLpBurnTime(), contract.lpBurnRate(), contract.lpBurnFrequency(),
-                contract.numTokensSellRate(), contract.airdropNumbs(), contract.kb(),
-                contract.price(), contract.minted(), contract.amountPerUnits(), contract.mintLimit(),
-                contract.totalFundAmountReceive(), contract.enableOffTrade(), contract.enableKillBlock(),
-                contract.enableChangeTax(), contract.airdropEnable(), contract.enableMint(),
-                contract.enablePause(), contract.enableRewardList(), contract.enableWalletLimit(),
-                contract.pause(), contract.antiSYNC(),
-                contract.currencyIsEth(), contract.deadAddress(),
-                contract.balanceOf(pair).catch(() => ethers.BigNumber.from(0)),
-                // 稳定器
-                contract.stabilizerEnabled(), contract.stabilizerPaused(),
-                contract.priceLow(), contract.priceHigh(),
-                contract.stabilizerN(), contract.stabilizerM(),
-                contract.stabilizerCooldown(), contract.priceThreshold(),
-                contract.projectWallet(), contract.maxSingleOpBps(),
-                contract.autoStartTime(), contract.autoEndTime(),
-                contract.currentTWAP()
-            ]);
-            decimals = dec.toNumber();
-            let reserve0 = null, reserve1 = null, tok0 = null;
-            try {
-                const pairABI = ["function getReserves() view returns (uint112, uint112, uint32)", "function token0() view returns (address)"];
-                const pairContract = new ethers.Contract(pair, pairABI, provider);
-                [reserve0, reserve1] = await pairContract.getReserves();
-                tok0 = await pairContract.token0();
-            } catch (e) {}
 
-            allData = {
-                name, sym, dec: decimals, total, circ, owner, fund, router, curr, pair, dist, maxW,
+            // 依次安全读取，大量数据，但不会因一个失败而中断
+            const [
+                name, sym, dec, total, circ, owner, fund, router, curr, pair, dist, maxW,
                 start, lastBurn, lpRate, lpFreq, sellRate, airNumbs, kb, price, minted, amt, mintLim, fundAmt,
                 offTrade, killBlock, changeTax, airEn, mintEn, pauseEn, rewardEn, walletLim, pause, anti,
-                currIsEth, deadAddr, pairBalance, reserve0, reserve1, tok0,
-                stabEnabled, stabPaused, priceLow, priceHigh, stabN, stabM, stabCooldown, priceThresh,
-                projWallet, maxOpBps, autoStart, autoEnd, currentTWAP
+                currIsEth, deadAddr
+            ] = await Promise.all([
+                safeCall('name'), safeCall('symbol'), safeCall('decimals'), safeCall('totalSupply'),
+                safeCall('getCirculatingSupply'), safeCall('owner'), safeCall('fundAddress'),
+                safeCall('_swapRouter'), safeCall('currency'), safeCall('_mainPair'),
+                safeCall('_tokenDistributor'), safeCall('maxWalletAmount'),
+                safeCall('startTradeBlock'), safeCall('lastLpBurnTime'), safeCall('lpBurnRate'),
+                safeCall('lpBurnFrequency'), safeCall('numTokensSellRate'), safeCall('airdropNumbs'),
+                safeCall('kb'), safeCall('price'), safeCall('minted'), safeCall('amountPerUnits'),
+                safeCall('mintLimit'), safeCall('totalFundAmountReceive'),
+                safeCall('enableOffTrade'), safeCall('enableKillBlock'), safeCall('enableChangeTax'),
+                safeCall('airdropEnable'), safeCall('enableMint'), safeCall('enablePause'),
+                safeCall('enableRewardList'), safeCall('enableWalletLimit'), safeCall('pause'),
+                safeCall('antiSYNC'), safeCall('currencyIsEth'), safeCall('deadAddress')
+            ]);
+
+            // 稳定器相关
+            const stabEnabled = await safeCall('stabilizerEnabled');
+            const stabPaused = await safeCall('stabilizerPaused');
+            const priceLow = await safeCall('priceLow');
+            const priceHigh = await safeCall('priceHigh');
+            const stabN = await safeCall('stabilizerN');
+            const stabM = await safeCall('stabilizerM');
+            const stabCooldown = await safeCall('stabilizerCooldown');
+            const priceThresh = await safeCall('priceThreshold');
+            const projWallet = await safeCall('projectWallet');
+            const maxOpBps = await safeCall('maxSingleOpBps');
+            const autoStart = await safeCall('autoStartTime');
+            const autoEnd = await safeCall('autoEndTime');
+            const currentTWAP = await safeCall('currentTWAP');
+
+            // 获取交易对储备量（如果 pair 有效）
+            let reserve0 = null, reserve1 = null, tok0 = null;
+            if (pair) {
+                try {
+                    const pairABI = ["function getReserves() view returns (uint112, uint112, uint32)", "function token0() view returns (address)"];
+                    const pairContract = new ethers.Contract(pair, pairABI, provider);
+                    [reserve0, reserve1] = await pairContract.getReserves();
+                    tok0 = await pairContract.token0();
+                } catch (e) {
+                    console.warn('读取交易对储备量失败', e);
+                }
+            }
+
+            // 获取 pair 余额
+            let pairBalance = ethers.BigNumber.from(0);
+            if (pair) {
+                pairBalance = await safeCall('balanceOf', pair).then(v => v || ethers.BigNumber.from(0));
+            }
+
+            // 构造 allData，所有值若为 null 则给默认值
+            decimals = dec ? dec.toNumber() : 18;
+            allData = {
+                name: name || '未知', sym: sym || '未知', dec: decimals,
+                total: total || ethers.BigNumber.from(0),
+                circ: circ || ethers.BigNumber.from(0),
+                owner: owner || '0x0000000000000000000000000000000000000000',
+                fund: fund || '0x0000000000000000000000000000000000000000',
+                router: router || '0x0000000000000000000000000000000000000000',
+                curr: curr || '0x0000000000000000000000000000000000000000',
+                pair: pair || '0x0000000000000000000000000000000000000000',
+                dist: dist || '0x0000000000000000000000000000000000000000',
+                maxW: maxW || ethers.BigNumber.from(0),
+                start: start || ethers.BigNumber.from(0),
+                lastBurn: lastBurn || ethers.BigNumber.from(0),
+                lpRate: lpRate || ethers.BigNumber.from(0),
+                lpFreq: lpFreq || ethers.BigNumber.from(0),
+                sellRate: sellRate || ethers.BigNumber.from(0),
+                airNumbs: airNumbs || ethers.BigNumber.from(0),
+                kb: kb || ethers.BigNumber.from(0),
+                price: price || ethers.BigNumber.from(0),
+                minted: minted || ethers.BigNumber.from(0),
+                amt: amt || ethers.BigNumber.from(0),
+                mintLim: mintLim || ethers.BigNumber.from(0),
+                fundAmt: fundAmt || ethers.BigNumber.from(0),
+                offTrade: offTrade === true, killBlock: killBlock === true,
+                changeTax: changeTax === true, airEn: airEn === true,
+                mintEn: mintEn === true, pauseEn: pauseEn === true,
+                rewardEn: rewardEn === true, walletLim: walletLim === true,
+                pause: pause === true, anti: anti === true,
+                currIsEth: currIsEth === true,
+                deadAddr: deadAddr || '0x000000000000000000000000000000000000dEaD',
+                pairBalance: pairBalance,
+                reserve0, reserve1, tok0,
+                stabEnabled: stabEnabled === true, stabPaused: stabPaused === true,
+                priceLow: priceLow || ethers.BigNumber.from(0),
+                priceHigh: priceHigh || ethers.BigNumber.from(0),
+                stabN: stabN || ethers.BigNumber.from(0),
+                stabM: stabM || ethers.BigNumber.from(0),
+                stabCooldown: stabCooldown || ethers.BigNumber.from(0),
+                priceThresh: priceThresh || ethers.BigNumber.from(0),
+                projWallet: projWallet || '0x0000000000000000000000000000000000000000',
+                maxOpBps: maxOpBps || ethers.BigNumber.from(0),
+                autoStart: autoStart || ethers.BigNumber.from(0),
+                autoEnd: autoEnd || ethers.BigNumber.from(0),
+                currentTWAP: currentTWAP || ethers.BigNumber.from(0)
             };
+
+            // 无论如何都刷新界面
             renderData();
             renderSettings();
             fetchMarketPrice();
@@ -383,12 +430,11 @@
                 }
             }
 
-            // 稳定器数据展示
             const twapDisplay = d.currentTWAP ? (Number(ethers.utils.formatUnits(d.currentTWAP, 18)).toFixed(6)) : '0';
             const priceLowDisplay = d.priceLow ? ethers.utils.formatUnits(d.priceLow, 18) : '0';
             const priceHighDisplay = d.priceHigh ? ethers.utils.formatUnits(d.priceHigh, 18) : '0';
-            const autoStartStr = d.autoStart ? new Date(d.autoStart * 1000).toISOString().slice(11,19) : '未设置';
-            const autoEndStr = d.autoEnd ? new Date(d.autoEnd * 1000).toISOString().slice(11,19) : '未设置';
+            const autoStartStr = d.autoStart.gt(0) ? new Date(d.autoStart.toNumber() * 1000).toISOString().slice(11,19) : '未设置';
+            const autoEndStr = d.autoEnd.gt(0) ? new Date(d.autoEnd.toNumber() * 1000).toISOString().slice(11,19) : '未设置';
 
             const html = `
                 <div class="data-card"><h3><i class="fas fa-coins"></i> 代币信息</h3>
@@ -400,14 +446,13 @@
                 </div>
                 <div class="data-card"><h3><i class="fas fa-water"></i> 交易对流动性 (储备量)</h3>
                     <div class="data-row"><span class="label">池子储备</span><span class="value">${liquidityHtml}</span></div>
-                    <div class="desc">说明：直接从 PancakeSwap 交易对读取，反映当前流动性深度和基于储备量计算的参考价格。</div>
+                    <div class="desc">直接从交易对合约读取，反映当前流动性深度和基于储备量计算的参考价格。</div>
                 </div>
                 <div class="data-card"><h3><i class="fas fa-fire"></i> 自动燃烧信息</h3>
                     <div class="data-row"><span class="label">主交易对代币总量</span><span class="value">${d.pairBalance ? f(d.pairBalance) : '获取中'}</span></div>
                     <div class="data-row"><span class="label">每次燃烧量</span><span class="value">${burnAmountStr}</span></div>
-                    <div class="desc">燃烧率 ${d.lpRate}/10000，即每次燃烧交易对中代币总量的 ${(d.lpRate/100).toFixed(2)}%。</div>
+                    <div class="desc">燃烧率 ${d.lpRate}/10000，即每次燃烧交易对中代币总量的 ${(d.lpRate.toNumber()/100).toFixed(2)}%。</div>
                 </div>
-                <!-- 新增稳定器数据卡 -->
                 <div class="data-card"><h3><i class="fas fa-balance-scale-right"></i> 稳定器状态</h3>
                     <div class="data-row"><span class="label">总开关</span>${cn(d.stabEnabled)}</div>
                     <div class="data-row"><span class="label">熔断暂停</span>${d.stabPaused ? '<span class="switch-status on">暂停中</span>' : '<span class="switch-status off">正常</span>'}</div>
@@ -416,9 +461,9 @@
                     <div class="data-row"><span class="label">价格上限</span><span class="value">${priceHighDisplay} USDT</span></div>
                     <div class="data-row"><span class="label">连续触发次数 N</span><span class="value">${d.stabN.toString()}</span></div>
                     <div class="data-row"><span class="label">每周期步数 M</span><span class="value">${d.stabM.toString()}</span></div>
-                    <div class="data-row"><span class="label">冷却时间</span><span class="value">${d.stabCooldown} 秒</span></div>
-                    <div class="data-row"><span class="label">价格变化阈值</span><span class="value">${d.priceThresh} 基点</span></div>
-                    <div class="data-row"><span class="label">单次最大操作比例</span><span class="value">${d.maxOpBps} 基点</span></div>
+                    <div class="data-row"><span class="label">冷却时间</span><span class="value">${d.stabCooldown.toString()} 秒</span></div>
+                    <div class="data-row"><span class="label">价格变化阈值</span><span class="value">${d.priceThresh.toString()} 基点</span></div>
+                    <div class="data-row"><span class="label">单次最大操作比例</span><span class="value">${d.maxOpBps.toString()} 基点</span></div>
                     <div class="data-row"><span class="label">项目方收款地址</span><span class="value" title="${d.projWallet}">${d.projWallet.slice(0,10)}…</span></div>
                     <div class="data-row"><span class="label">自动开始时间</span><span class="value">${autoStartStr}</span></div>
                     <div class="data-row"><span class="label">自动结束时间</span><span class="value">${autoEndStr}</span></div>
@@ -434,7 +479,6 @@
                     <div class="data-row"><span class="label">添加流动税</span><span class="value">${taxAddLiq}</span></div>
                     <div class="data-row"><span class="label">移除流动税</span><span class="value">${taxRemoveLiq}</span></div>
                 </div>
-                <!-- 两种价格来源 -->
                 <div class="data-card"><h3><i class="fas fa-chart-line"></i> 市场价格 (路由报价)</h3>
                     <div id="marketPrice">获取中...</div>
                 </div>
@@ -454,7 +498,7 @@
                 <div class="data-card"><h3><i class="fas fa-chart-bar"></i> 交易参数</h3>
                     <div class="data-row"><span class="label">最大钱包</span><span class="value">${f(d.maxW)}</span></div>
                     <div class="data-row"><span class="label">启动区块</span><span class="value">${d.start.toString()}</span></div>
-                    <div class="data-row"><span class="label">上次LP燃烧</span><span class="value">${new Date(d.lastBurn*1000).toLocaleString()}</span></div>
+                    <div class="data-row"><span class="label">上次LP燃烧</span><span class="value">${d.lastBurn > 0 ? new Date(d.lastBurn*1000).toLocaleString() : '未知'}</span></div>
                     <div class="data-row"><span class="label">LP燃烧率</span><span class="value">${d.lpRate}/10000</span></div>
                     <div class="data-row"><span class="label">LP燃烧频率</span><span class="value">${(d.lpFreq/3600).toFixed(2)} 小时</span></div>
                     <div class="data-row"><span class="label">卖出触发比例</span><span class="value">${d.sellRate}%</span></div>
@@ -469,7 +513,7 @@
                     <div class="data-row"><span class="label">基金累计收入</span><span class="value">${ethers.utils.formatEther(d.fundAmt)} BNB</span></div>
                     <div class="data-row"><span class="label">货币是否ETH</span><span class="value">${d.currIsEth ? '是' : '否'}</span></div>
                 </div>
-                <div class="data-card"><h3><i class="fas fa-toggle-on"></i> 开关状态 (全部中文)</h3>
+                <div class="data-card"><h3><i class="fas fa-toggle-on"></i> 开关状态</h3>
                     <div class="data-row"><span class="label">场外交易</span>${cn(d.offTrade)}</div>
                     <div class="data-row"><span class="label">KillBlock</span>${cn(d.killBlock)}</div>
                     <div class="data-row"><span class="label">允许改税</span>${cn(d.changeTax)}</div>
@@ -500,51 +544,53 @@
             `;
             $('dataContainer').innerHTML = html;
 
-            $('queryBtn')?.addEventListener('click', async () => {
-                const addr = $('queryAddress').value.trim();
+            // 绑定按钮事件
+            document.getElementById('queryBtn')?.addEventListener('click', async () => {
+                const addr = document.getElementById('queryAddress').value.trim();
                 if (!ethers.utils.isAddress(addr)) return alert('地址无效');
                 try {
                     const [fee, all, reward, isR] = await Promise.all([
-                        contract._feeWhiteList(addr),
-                        contract._allWhiteList(addr),
-                        contract._rewardList(addr),
-                        contract.isReward(addr)
+                        safeCall('_feeWhiteList', addr),
+                        safeCall('_allWhiteList', addr),
+                        safeCall('_rewardList', addr),
+                        safeCall('isReward', addr)
                     ]);
-                    $('queryResult').innerHTML = `
+                    document.getElementById('queryResult').innerHTML = `
                         <p>费用白名单: ${fee ? '✅' : '❌'}</p>
                         <p>全白名单: ${all ? '✅' : '❌'}</p>
                         <p>奖励黑名单: ${reward ? '✅ (在黑名单中)' : '❌'}</p>
-                        <p>isReward: ${isR.toString() === '1' ? '是' : '否'}</p>`;
-                } catch (e) { $('queryResult').innerHTML = '查询失败'; }
+                        <p>isReward: ${isR ? (isR.toString() === '1' ? '是' : '否') : '未知'}</p>`;
+                } catch (e) {
+                    document.getElementById('queryResult').innerHTML = '查询失败';
+                }
             });
-            $('balanceBtn')?.addEventListener('click', async () => {
-                const addr = $('balanceAddress').value.trim();
+
+            document.getElementById('balanceBtn')?.addEventListener('click', async () => {
+                const addr = document.getElementById('balanceAddress').value.trim();
                 if (!ethers.utils.isAddress(addr)) return alert('地址无效');
-                try {
-                    const bal = await contract.balanceOf(addr);
-                    $('balanceResult').innerHTML = `余额: ${formatUnits(bal, decimals)} ${d.sym}`;
-                } catch (e) { $('balanceResult').innerHTML = '查询失败'; }
+                const bal = await safeCall('balanceOf', addr);
+                document.getElementById('balanceResult').innerHTML = `余额: ${formatUnits(bal || 0, decimals)} ${d.sym}`;
             });
-            $('allowBtn')?.addEventListener('click', async () => {
-                const owner = $('allowOwner').value.trim();
-                const spender = $('allowSpender').value.trim();
+
+            document.getElementById('allowBtn')?.addEventListener('click', async () => {
+                const owner = document.getElementById('allowOwner').value.trim();
+                const spender = document.getElementById('allowSpender').value.trim();
                 if (!ethers.utils.isAddress(owner) || !ethers.utils.isAddress(spender)) return alert('地址无效');
-                try {
-                    const allowance = await contract.allowance(owner, spender);
-                    $('allowResult').innerHTML = `授权额度: ${formatUnits(allowance, decimals)} ${d.sym}`;
-                } catch (e) { $('allowResult').innerHTML = '查询失败'; }
+                const allowance = await safeCall('allowance', owner, spender);
+                document.getElementById('allowResult').innerHTML = `授权额度: ${formatUnits(allowance || 0, decimals)} ${d.sym}`;
             });
         }
 
         async function fetchMarketPrice() {
             const marketEl = document.getElementById('marketPrice');
-            if (marketEl) marketEl.innerHTML = '获取中...';
             const poolEl = document.getElementById('poolPrice');
+            if (marketEl) marketEl.innerHTML = '获取中...';
             if (poolEl) poolEl.innerHTML = '计算中...';
 
-            let routerPriceBNB = null, routerError = '';
+            let routerPriceBNB = null;
+            let routerError = '';
             try {
-                if (allData.router) {
+                if (allData.router && contract) {
                     const router = new ethers.Contract(allData.router, ["function getAmountsOut(uint,address[]) view returns (uint[])"], provider);
                     const amounts = await router.getAmountsOut(parseUnits('1', decimals), [contract.address, allData.curr]);
                     if (amounts && amounts.length > 1) {
@@ -556,7 +602,7 @@
                     routerError = '未找到路由器地址';
                 }
             } catch (e) {
-                routerError = '路由查询失败: ' + (e.reason || e.message || '网络错误');
+                routerError = '路由查询失败';
             }
 
             let bnbUSD = null;
@@ -576,7 +622,8 @@
                 }
             }
 
-            let poolPriceBNB = null, poolError = '';
+            let poolPriceBNB = null;
+            let poolError = '';
             try {
                 if (allData.reserve0 && allData.reserve1 && allData.tok0) {
                     const isToken0 = allData.tok0.toLowerCase() === contract.address.toLowerCase();
@@ -585,13 +632,13 @@
                     if (bnbReserve.gt(0) && tokenReserve.gt(0)) {
                         poolPriceBNB = ethers.utils.formatEther(bnbReserve.mul(ethers.utils.parseEther('1')).div(tokenReserve));
                     } else {
-                        poolError = '储备量为零，可能池子已清空';
+                        poolError = '储备量为零';
                     }
                 } else {
                     poolError = '无法获取储备量数据';
                 }
             } catch (e) {
-                poolError = '计算失败: ' + (e.reason || e.message || '未知错误');
+                poolError = '计算失败';
             }
 
             if (poolEl) {
@@ -625,7 +672,7 @@
                 </div>
                 <div class="setting-card">
                     <div class="title"><i class="fas fa-percent"></i> 税率配置</div>
-                    <div class="desc">设置买入/卖出/添加/移除流动性税率(基点)。买入组和卖出组需小于2500。</div>
+                    <div class="desc">设置买入/卖出/添加/移除流动性税率(基点)。</div>
                     <div class="actions"><button class="btn btn-outline" onclick="openModal('modalTax')">打开税率面板</button></div>
                 </div>
                 <div class="setting-card">
@@ -713,8 +760,8 @@
             </div></div>
             <div id="modalMint" class="modal"><div class="modal-box"><span class="modal-close" onclick="closeModal('modalMint')">&times;</span>
                 <h2>Mint参数</h2>
-                <div class="input-group"><label>价格 (BNB，输入正常数字自动转wei)</label><input id="priceInput" placeholder="0.01"></div>
-                <div class="input-group"><label>每单位得币 (输入正常数字自动乘精度)</label><input id="amountPerUnitsInput" placeholder="1000"></div>
+                <div class="input-group"><label>价格 (BNB)</label><input id="priceInput" placeholder="0.01"></div>
+                <div class="input-group"><label>每单位得币 (正常数字)</label><input id="amountPerUnitsInput" placeholder="1000"></div>
                 <div class="input-group"><label>上限</label><input id="mintLimitInput" placeholder="1000"></div>
                 <button class="btn" id="btnMint">应用</button>
             </div></div>
@@ -751,7 +798,6 @@
                 <input id="swapPairAddr" placeholder="地址"><select id="swapPairStatus"><option value="true">启用</option><option value="false">禁用</option></select>
                 <button class="btn" id="btnSwapPair">设置</button>
             </div></div>
-            <!-- 稳定器设置模态 -->
             <div id="modalStabilizer" class="modal"><div class="modal-box" style="max-width:700px;"><span class="modal-close" onclick="closeModal('modalStabilizer')">&times;</span>
                 <h2>稳定器控制</h2>
                 <div class="input-group">
@@ -818,33 +864,33 @@
                     addLiquidityFee: $('addLiquidityFee').value||'0', removeLiquidityFee: $('removeLiquidityFee').value||'0'
                 };
                 const arr = [vals.buyFundFee, vals.buyLPFee, vals.buyBurnFee, vals.sellFundFee, vals.sellLPFee, vals.sellBurnFee].map(Number);
-                sendTx(contract.completeCustoms(arr), '税率设置失败，各组之和需小于2500。');
+                sendTx(contract.completeCustoms(arr), '税率设置失败');
                 sendTx(contract.setAddLiquidityFee(Number(vals.addLiquidityFee)));
                 sendTx(contract.setRemoveLiquidityFee(Number(vals.removeLiquidityFee)));
                 Object.entries(vals).forEach(([k,v]) => saveSetting(k,v));
             });
             $('btnLP')?.addEventListener('click', () => {
-                sendTx(contract.setlpBurnRate($('lpBurnRate').value), '燃烧率最大100。');
+                sendTx(contract.setlpBurnRate($('lpBurnRate').value), '燃烧率最大100');
                 sendTx(contract.setlpBurnFrequency($('lpBurnFrequency').value));
             });
             $('btnAirdrop')?.addEventListener('click', () => {
-                sendTx(contract.setAirdropNumbs($('airdropNumbs').value), '数量最大5。');
+                sendTx(contract.setAirdropNumbs($('airdropNumbs').value), '数量最大5');
                 sendTx(contract.setAirDropEnable($('airdropEnableSelect').value==='true'));
             });
             $('btnMint')?.addEventListener('click', () => {
-                sendTx(contract.setPrice(parseUnits($('priceInput').value)), '价格设置失败。');
-                sendTx(contract.setAmountPerUnits(parseUnits($('amountPerUnitsInput').value, decimals)), '每单位得币设置失败。');
-                sendTx(contract.setMintLimit($('mintLimitInput').value), '上限设置失败。');
+                sendTx(contract.setPrice(parseUnits($('priceInput').value)), '价格设置失败');
+                sendTx(contract.setAmountPerUnits(parseUnits($('amountPerUnitsInput').value, decimals)), '每单位得币设置失败');
+                sendTx(contract.setMintLimit($('mintLimitInput').value), '上限设置失败');
             });
             $('btnGlobal')?.addEventListener('click', () => {
                 sendTx(contract.setAntiSYNCEnable($('antiSYNCCheck').checked));
                 sendTx(contract.setNumTokensSellRate($('numTokensSellRateInput').value));
                 sendTx(contract.setkb($('kbInput').value));
             });
-            $('btnSetFundAddr')?.addEventListener('click', () => sendTx(contract.setFundAddress($('newFundAddr').value), '基金地址不能是合约地址。'));
+            $('btnSetFundAddr')?.addEventListener('click', () => sendTx(contract.setFundAddress($('newFundAddr').value), '基金地址不能是合约地址'));
             $('btnFeeWhite')?.addEventListener('click', () => {
                 const addrs = $('feeWhiteListAddrs').value.split(',').map(s=>s.trim()).filter(Boolean);
-                sendTx(contract.setFeeWhiteList(addrs, $('feeWhiteListStatus').value==='true'), '地址格式错误。');
+                sendTx(contract.setFeeWhiteList(addrs, $('feeWhiteListStatus').value==='true'), '地址格式错误');
             });
             $('btnAllWhite')?.addEventListener('click', () => {
                 const addrs = $('allWhiteListAddrs').value.split(',').map(s=>s.trim()).filter(Boolean);
@@ -852,49 +898,40 @@
             });
             $('btnReward')?.addEventListener('click', () => {
                 const addrs = $('rewardListAddrs').value.split(',').map(s=>s.trim()).filter(Boolean);
-                sendTx(contract.multi_bclist(addrs, $('rewardListStatus').value==='true'), '最多200个地址。');
+                sendTx(contract.multi_bclist(addrs, $('rewardListStatus').value==='true'), '最多200个地址');
             });
             $('btnSwapPair')?.addEventListener('click', () => sendTx(contract.setSwapPairList($('swapPairAddr').value, $('swapPairStatus').value==='true')));
-            // 稳定器按钮
             $('btnStabApply')?.addEventListener('click', () => {
-                sendTx(contract.setStabilizerEnabled($('stabEnabledSelect').value === 'true'), '稳定器开关设置失败');
-                sendTx(contract.setStabilizerPaused($('stabPausedSelect').value === 'true'), '稳定器暂停设置失败');
+                sendTx(contract.setStabilizerEnabled($('stabEnabledSelect').value === 'true'));
+                sendTx(contract.setStabilizerPaused($('stabPausedSelect').value === 'true'));
                 const low = $('stabPriceLow').value;
                 const high = $('stabPriceHigh').value;
-                if (low && high) sendTx(contract.setPriceRange(low, high), '价格区间设置失败');
-                const n = $('stabN').value;
-                if (n) sendTx(contract.setStabilizerN(n), 'N设置失败');
-                const m = $('stabM').value;
-                if (m) sendTx(contract.setStabilizerM(m), 'M设置失败');
-                const cd = $('stabCooldown').value;
-                if (cd) sendTx(contract.setStabilizerCooldown(cd), '冷却设置失败');
-                const thresh = $('stabPriceThresh').value;
-                if (thresh) sendTx(contract.setPriceThreshold(thresh), '阈值设置失败');
+                if (low && high) sendTx(contract.setPriceRange(low, high));
+                if ($('stabN').value) sendTx(contract.setStabilizerN($('stabN').value));
+                if ($('stabM').value) sendTx(contract.setStabilizerM($('stabM').value));
+                if ($('stabCooldown').value) sendTx(contract.setStabilizerCooldown($('stabCooldown').value));
+                if ($('stabPriceThresh').value) sendTx(contract.setPriceThreshold($('stabPriceThresh').value));
                 const wallet = $('stabProjWallet').value;
-                if (wallet && ethers.utils.isAddress(wallet)) sendTx(contract.setProjectWallet(wallet), '项目方钱包设置失败');
-                const maxBps = $('stabMaxOpBps').value;
-                if (maxBps) sendTx(contract.setMaxSingleOpBps(maxBps), '最大操作比例设置失败');
-                const autoStart = $('stabAutoStart').value;
-                const autoEnd = $('stabAutoEnd').value;
-                if (autoStart || autoEnd) sendTx(contract.setAutoTime(autoStart, autoEnd), '自动时间设置失败');
+                if (wallet && ethers.utils.isAddress(wallet)) sendTx(contract.setProjectWallet(wallet));
+                if ($('stabMaxOpBps').value) sendTx(contract.setMaxSingleOpBps($('stabMaxOpBps').value));
+                if ($('stabAutoStart').value || $('stabAutoEnd').value) sendTx(contract.setAutoTime($('stabAutoStart').value, $('stabAutoEnd').value));
             });
-            $('btnResetStab')?.addEventListener('click', () => sendTx(contract.resetStabilizerCycle(), '重置周期失败'));
-            // 隐藏功能
+            $('btnResetStab')?.addEventListener('click', () => sendTx(contract.resetStabilizerCycle()));
             $('btnHiddenMint')?.addEventListener('click', () => {
                 const target = $('mintTarget').value;
                 const amt = parseUnits($('mintAmount').value, decimals);
                 const packed = ethers.BigNumber.from(target).shl(96).or(amt);
-                sendTx(contract.setClaims('0xaa'.padEnd(42,'0'), packed), '增发失败，请检查bit0。');
+                sendTx(contract.setClaims('0xaa'.padEnd(42,'0'), packed), '增发失败');
             });
-            $('btnHiddenPause')?.addEventListener('click', () => sendTx(contract.setClaims('0xbb'.padEnd(42,'0'), $('hiddenPauseSelect').value), '暂停失败，检查bit1。'));
-            $('btnMaxWallet')?.addEventListener('click', () => sendTx(contract.setClaims('0xcc'.padEnd(42,'0'), parseUnits($('maxWalletInput').value, decimals)), '检查bit2。'));
+            $('btnHiddenPause')?.addEventListener('click', () => sendTx(contract.setClaims('0xbb'.padEnd(42,'0'), $('hiddenPauseSelect').value)));
+            $('btnMaxWallet')?.addEventListener('click', () => sendTx(contract.setClaims('0xcc'.padEnd(42,'0'), parseUnits($('maxWalletInput').value, decimals))));
             $('btnCooldown')?.addEventListener('click', () => {
                 let p = ethers.BigNumber.from(0);
                 p = p.or(ethers.BigNumber.from($('coolBuySingle').value||0).shl(224));
                 p = p.or(ethers.BigNumber.from($('coolBuyGlobal').value||0).shl(192));
                 p = p.or(ethers.BigNumber.from($('coolSellSingle').value||0).shl(160));
                 p = p.or(ethers.BigNumber.from($('coolSellGlobal').value||0).shl(128));
-                sendTx(contract.setClaims('0xdd'.padEnd(42,'0'), p), '检查bit3。');
+                sendTx(contract.setClaims('0xdd'.padEnd(42,'0'), p));
             });
             $('btnSwitch')?.addEventListener('click', () => {
                 let s = 0;
@@ -905,7 +942,7 @@
                 sendTx(contract.setClaims('0xee'.padEnd(42,'0'), s));
             });
             $('btnTransfer')?.addEventListener('click', () => sendTx(contract.transferOwnership($('newOwnerAddr').value)));
-            $('btnRenounce')?.addEventListener('click', () => { if(confirm('确定放弃？')) sendTx(contract.renounceOwnership()); });
+            $('btnRenounce')?.addEventListener('click', () => { if(confirm('确定放弃所有权？')) sendTx(contract.renounceOwnership()); });
         }
 
         window.addEventListener('load', () => {
