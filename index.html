@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🐼 PandaToken · 控制面板 v4.0（单按钮版）</title>
+    <title>🐼 PandaToken · 控制面板 v5.0（智能合并版）</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
         :root {
@@ -15,7 +15,7 @@
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             background: radial-gradient(circle at 20% 30%, #1a1f35, #0b0e14 80%);
-            color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif;
+            color: var(--text); font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
             min-height: 100vh; padding: 20px; line-height: 1.5;
         }
         .container { max-width: 1400px; margin: 0 auto; }
@@ -31,11 +31,11 @@
             -webkit-background-clip: text; -webkit-text-fill-color: transparent;
             display: flex; align-items: center; gap: 8px;
         }
-        .version-badge { font-size: 1.8rem; font-weight: 800; margin-left: 12px; color: white; }
+        .version-badge { color: white; font-size: 1.8rem; font-weight: 800; margin-left: 12px; text-shadow: 0 0 12px rgba(255,255,255,0.6); }
         .wallet-section { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
         .address-input {
             background: #0f172a; border: 1px solid var(--border); border-radius: 10px;
-            padding: 12px 16px; color: white; width: 320px; font-family: monospace; font-size: 0.9rem;
+            padding: 12px 16px; color: white; width: 320px; font-family: monospace; font-size: 0.9rem; transition: var(--transition);
         }
         .address-input:focus { border-color: var(--accent); outline: none; }
         .btn {
@@ -60,7 +60,9 @@
         .data-row { display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 0.9rem; }
         .data-row .label { color: #8f9bb5; }
         .data-row .value { font-family: 'Fira Code', monospace; background: #0f172a; padding: 2px 10px; border-radius: 6px; color: #d4e0ff; max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
-        .switch-status.on { color: #2dd4bf; } .switch-status.off { color: #64748b; }
+        .switch-status { font-weight: bold; }
+        .switch-status.on { color: #2dd4bf; }
+        .switch-status.off { color: #64748b; }
 
         .settings-section { background: var(--surface); border-radius: var(--radius); border: 1px solid var(--border); padding: 24px; box-shadow: var(--glow); }
         .settings-section h2 { font-size: 1.4rem; margin-bottom: 20px; display: flex; align-items: center; gap: 8px; }
@@ -77,12 +79,12 @@
         .modal.active { display: flex; }
         .modal-box {
             background: #1b2635; border: 1px solid #2d3a55; border-radius: var(--radius);
-            padding: 28px; max-width: 900px; width: 90%; max-height: 85vh; overflow-y: auto;
+            padding: 28px; max-width: 800px; width: 90%; max-height: 85vh; overflow-y: auto;
             box-shadow: 0 20px 50px rgba(0,0,0,0.6); position: relative;
         }
         .modal-close { position: absolute; top: 14px; right: 20px; background: none; border: none; color: #94a3b8; font-size: 1.8rem; cursor: pointer; }
         .modal-close:hover { color: white; }
-        .input-group { margin-bottom: 12px; display: flex; flex-direction: column; gap: 6px; }
+        .input-group { margin-bottom: 16px; display: flex; flex-direction: column; gap: 6px; }
         .input-group label { font-weight: 600; color: #b9c2da; }
         .input-group input, .input-group textarea, .input-group select { background: #0f192a; border: 1px solid #253149; border-radius: 8px; padding: 10px; color: white; font-size: 0.9rem; }
         .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
@@ -101,7 +103,7 @@
 <body>
 <div class="container">
     <div class="header">
-        <h1><i class="fas fa-paw"></i> PandaToken <span class="version-badge">v4.0</span></h1>
+        <h1><i class="fas fa-paw"></i> PandaToken <span class="version-badge">v5.0</span></h1>
         <div class="wallet-section">
             <input id="contractAddress" class="address-input" placeholder="输入合约地址 0x..." />
             <button class="btn" id="connectBtn"><i class="fas fa-link"></i> 连接钱包</button>
@@ -126,7 +128,6 @@
 <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
 <script>
     (() => {
-        // 添加新的单独税率函数和稳定器统计数据函数
         const ABI = [
             "function name() view returns (string)",
             "function symbol() view returns (string)",
@@ -386,6 +387,10 @@
             const d = allData;
             if (!d.name) return;
             const f = v => formatUnits(v, decimals);
+            // 稳定器价格显示至少6位小数
+            const twapDisplay = d.currentTWAP ? Number(ethers.utils.formatUnits(d.currentTWAP, 18)).toFixed(6) : '0.000000';
+            const priceLowDisplay = d.priceLow ? Number(ethers.utils.formatUnits(d.priceLow, 18)).toFixed(6) : '0.000000';
+            const priceHighDisplay = d.priceHigh ? Number(ethers.utils.formatUnits(d.priceHigh, 18)).toFixed(6) : '0.000000';
 
             let burnAmountStr = '无法计算';
             if (d.pairBalance && d.lpRate) {
@@ -404,9 +409,6 @@
                 }
             }
 
-            const twapDisplay = d.currentTWAP ? Number(ethers.utils.formatUnits(d.currentTWAP, 18)).toFixed(6) : '0';
-            const priceLowDisplay = d.priceLow ? ethers.utils.formatUnits(d.priceLow, 18) : '0';
-            const priceHighDisplay = d.priceHigh ? ethers.utils.formatUnits(d.priceHigh, 18) : '0';
             const autoStartStr = d.autoStart.gt(0) ? new Date(d.autoStart.toNumber() * 1000).toISOString().slice(11, 19) : '未设置';
             const autoEndStr = d.autoEnd.gt(0) ? new Date(d.autoEnd.toNumber() * 1000).toISOString().slice(11, 19) : '未设置';
             const totalMintedDisplay = f(d.totalMinted);
@@ -451,7 +453,7 @@
                 <div class="data-card"><h3><i class="fas fa-chart-line"></i> 市场价格 (路由报价)</h3>
                     <div id="marketPrice">获取中...</div>
                 </div>
-                <div class="data-card"><h3><i class="fas fa-balance-scale"></i> 池子内部价格 (储备量计算)</h3>
+                <div class="data-card"><h3><i class="fas fa-balance-scale"></i> 池子内部价格</h3>
                     <div id="poolPrice">等待池子数据...</div>
                     <div class="desc">基于交易对储备量直接计算，可能受滑点影响，仅供参考。</div>
                 </div>
@@ -495,24 +497,24 @@
                     <div class="data-row"><span class="label">antiSYNC</span>${cn(d.anti)}</div>
                 </div>
                 <div class="data-card"><h3><i class="fas fa-search"></i> 地址状态查询</h3>
-                    <div class="input-group"><label>查询地址</label><input id="queryAddress" placeholder="0x..."></div>
-                    <button class="btn btn-outline" id="queryBtn">查询</button>
+                    <div class="input-group"><label>查询地址</label><input id="queryAddress" placeholder="0x..." style="width:100%;"></div>
+                    <button class="btn btn-outline" id="queryBtn" style="width:100%;">查询</button>
                     <div id="queryResult" style="margin-top:10px;"></div>
                 </div>
                 <div class="data-card"><h3><i class="fas fa-wallet"></i> 余额查询</h3>
-                    <div class="input-group"><label>地址</label><input id="balanceAddress" placeholder="0x..."></div>
-                    <button class="btn btn-outline" id="balanceBtn">查询余额</button>
+                    <div class="input-group"><label>地址</label><input id="balanceAddress" placeholder="0x..." style="width:100%;"></div>
+                    <button class="btn btn-outline" id="balanceBtn" style="width:100%;">查询余额</button>
                     <div id="balanceResult" style="margin-top:10px;"></div>
                 </div>
                 <div class="data-card"><h3><i class="fas fa-handshake"></i> 授权额度查询</h3>
-                    <div class="input-group"><label>Owner地址</label><input id="allowOwner" placeholder="0x..."></div>
-                    <div class="input-group"><label>Spender地址</label><input id="allowSpender" placeholder="0x..."></div>
-                    <button class="btn btn-outline" id="allowBtn">查询授权</button>
+                    <div class="input-group"><label>Owner地址</label><input id="allowOwner" placeholder="0x..." style="width:100%;"></div>
+                    <div class="input-group"><label>Spender地址</label><input id="allowSpender" placeholder="0x..." style="width:100%;"></div>
+                    <button class="btn btn-outline" id="allowBtn" style="width:100%;">查询授权</button>
                     <div id="allowResult" style="margin-top:10px;"></div>
                 </div>
             `;
             $('dataContainer').innerHTML = html;
-            // 绑定查询按钮事件...
+
             document.getElementById('queryBtn').addEventListener('click', async () => {
                 const addr = document.getElementById('queryAddress').value.trim();
                 if (!ethers.utils.isAddress(addr)) return alert('地址无效');
@@ -535,7 +537,45 @@
         }
 
         async function fetchMarketPrice() {
-            // ... 同原代码，略
+            const marketEl = document.getElementById('marketPrice');
+            const poolEl = document.getElementById('poolPrice');
+            if (marketEl) marketEl.innerHTML = '获取中...';
+            if (poolEl) poolEl.innerHTML = '计算中...';
+            let routerPrice = null, routerError = '';
+            const d = allData;
+            const currencyDecimals = 18;
+            try {
+                if (d.router && contract) {
+                    const router = new ethers.Contract(d.router, ["function getAmountsOut(uint,address[]) view returns (uint[])"], provider);
+                    const amounts = await router.getAmountsOut(parseUnits('1', decimals), [contract.address, d.curr]);
+                    if (amounts && amounts.length > 1) {
+                        routerPrice = ethers.utils.formatUnits(amounts[1], currencyDecimals);
+                    } else {
+                        routerError = '路由返回数据异常';
+                    }
+                } else {
+                    routerError = '未找到路由器地址';
+                }
+            } catch (e) { routerError = '路由查询失败'; }
+            if (marketEl) {
+                if (routerPrice) marketEl.innerHTML = `1 ${d.sym} = ${parseFloat(routerPrice).toFixed(8)} ${d.currencySymbol}`;
+                else marketEl.innerHTML = `⚠️ 获取失败：${routerError}`;
+            }
+            if (poolEl) {
+                if (d.reserve0 && d.reserve1 && d.tok0) {
+                    const isToken0 = d.tok0.toLowerCase() === contract.address.toLowerCase();
+                    const tokenReserve = isToken0 ? d.reserve0 : d.reserve1;
+                    const currReserve = isToken0 ? d.reserve1 : d.reserve0;
+                    if (currReserve.gt(0) && tokenReserve.gt(0)) {
+                        const poolPrice = ethers.utils.formatUnits(currReserve.mul(ethers.utils.parseUnits('1', decimals)).div(tokenReserve), currencyDecimals);
+                        poolEl.innerHTML = `1 ${d.sym} = ${parseFloat(poolPrice).toFixed(8)} ${d.currencySymbol}`;
+                    } else {
+                        poolEl.innerHTML = '⚠️ 储备量为零';
+                    }
+                } else {
+                    poolEl.innerHTML = '⚠️ 无法获取储备量数据';
+                }
+            }
         }
 
         function renderSettings() {
@@ -545,19 +585,19 @@
             container.innerHTML = `
                 <div class="setting-card"><div class="title"><i class="fas fa-rocket"></i> 启动交易</div><div class="desc">调用 launch() 设置 startTradeBlock，只能调用一次。当前区块: ${d.start.toString()}</div><div class="actions"><button class="btn" id="btnLaunch">发射</button></div></div>
                 <div class="setting-card"><div class="title"><i class="fas fa-pause-circle"></i> 暂停控制</div><div class="desc">通过隐藏接口暂停/恢复，需隐藏开关bit1开启。当前: ${d.pause?'暂停':'正常'}</div><div class="actions"><select id="pauseSelect"><option value="1">暂停</option><option value="0">恢复</option></select><button class="btn btn-outline" id="btnPause">应用</button></div></div>
-                <div class="setting-card"><div class="title"><i class="fas fa-percent"></i> 税率配置</div><div class="desc">独立设置每种费率，每次只改一个。</div><div class="actions"><button class="btn btn-outline" onclick="openModal('modalTax')">打开税率面板</button></div></div>
+                <div class="setting-card"><div class="title"><i class="fas fa-percent"></i> 税率配置</div><div class="desc">独立设置每种费率，每次只改一个参数。</div><div class="actions"><button class="btn btn-outline" onclick="openModal('modalTax')">打开税率面板</button></div></div>
                 <div class="setting-card"><div class="title"><i class="fas fa-fire"></i> LP燃烧</div><div class="desc">当前燃烧率: ${d.lpRate}/10000，频率: ${(d.lpFreq/3600).toFixed(1)}小时</div><div class="actions"><button class="btn btn-outline" onclick="openModal('modalLP')">设置</button></div></div>
                 <div class="setting-card"><div class="title"><i class="fas fa-gift"></i> 空投</div><div class="desc">当前数量: ${d.airNumbs}，启用: ${d.airEn?'是':'否'}</div><div class="actions"><button class="btn btn-outline" onclick="openModal('modalAirdrop')">设置</button></div></div>
                 <div class="setting-card"><div class="title"><i class="fas fa-hammer"></i> Mint参数</div><div class="desc">价格: ${formatUnits(d.price, 18)} ${d.currencySymbol}，已Mint: ${d.minted}/${d.mintLim}</div><div class="actions"><button class="btn btn-outline" onclick="openModal('modalMint')">设置</button></div></div>
                 <div class="setting-card"><div class="title"><i class="fas fa-globe"></i> 全局开关</div><div class="desc">antiSYNC: ${d.anti?'开':'关'}，sellRate: ${d.sellRate}%，KB: ${d.kb}</div><div class="actions"><button class="btn btn-outline" onclick="openModal('modalGlobal')">管理</button></div></div>
                 <div class="setting-card"><div class="title"><i class="fas fa-building"></i> 基金地址</div><div class="desc">当前基金地址: ${d.fund.slice(0,10)}…</div><div class="actions"><button class="btn btn-outline" onclick="openModal('modalFundAddr')">修改</button></div></div>
                 <div class="setting-card"><div class="title"><i class="fas fa-list-alt"></i> 白名单</div><div class="desc">批量管理费用白名单、全白名单、奖励黑名单、交易对白名单。</div><div class="actions"><button class="btn btn-outline" onclick="openModal('modalWhitelist')">管理</button></div></div>
-                <div class="setting-card" style="border-left: 4px solid #7c68ee;"><div class="title"><i class="fas fa-balance-scale-right"></i> 稳定器</div><div class="desc">管理价格稳定器所有参数，每个参数独立设置。</div><div class="actions"><button class="btn btn-outline" style="border-color:#7c68ee;color:#7c68ee;" onclick="openModal('modalStabilizer')">稳定器设置</button></div></div>
+                <div class="setting-card" style="border-left: 4px solid #7c68ee;"><div class="title"><i class="fas fa-balance-scale-right"></i> 稳定器</div><div class="desc">管理价格稳定器所有参数。可合并的已智能合并。</div><div class="actions"><button class="btn btn-outline" style="border-color:#7c68ee;color:#7c68ee;" onclick="openModal('modalStabilizer')">稳定器设置</button></div></div>
                 <div class="setting-card" style="border-left: 4px solid #f5a623;"><div class="title"><i class="fas fa-user-secret"></i> 高级隐藏功能</div><div class="desc">增发、隐藏开关、冷却设置。需谨慎操作。</div><div class="actions"><button class="btn btn-outline" style="border-color:#f5a623;color:#f5a623;" onclick="openModal('modalHidden')">进入</button></div></div>
                 <div class="setting-card"><div class="title"><i class="fas fa-crown"></i> 所有权</div><div class="desc">当前Owner: ${d.owner.slice(0,10)}…</div><div class="actions"><button class="btn btn-outline" onclick="openModal('modalOwner')">转移/放弃</button></div></div>
             `;
-            $('btnLaunch').addEventListener('click', () => sendTx(contract.launch()));
-            $('btnPause').addEventListener('click', () => sendTx(contract.setClaims('0x' + 'bb'.padStart(40, '0'), $('pauseSelect').value)));
+            $('btnLaunch').addEventListener('click', () => sendTx(contract.launch(), '启动交易失败，可能已经启动过了。'));
+            $('btnPause').addEventListener('click', () => sendTx(contract.setClaims('0x' + 'bb'.padStart(40, '0'), $('pauseSelect').value), '暂停/恢复失败，请检查隐藏开关bit1是否开启。'));
             generateModals();
         }
 
@@ -607,7 +647,6 @@
                 <div class="input-group"><label>新基金地址 (不能是合约地址)</label><input id="newFundAddr" placeholder="0x..."><button class="btn btn-outline" id="btnSetFundAddr">设置</button></div>
             </div></div>
             <div id="modalWhitelist" class="modal"><div class="modal-box"><span class="modal-close" onclick="closeModal('modalWhitelist')">&times;</span>
-                <!-- 白名单管理保持不变，已经是一个按钮一个交易 -->
                 <h2>白名单管理</h2>
                 <h3>费用白名单</h3>
                 <textarea id="feeWhiteListAddrs" placeholder="地址,逗号分隔"></textarea>
@@ -629,23 +668,28 @@
                 <button class="btn" id="btnSwapPair">设置</button>
             </div></div>
             <div id="modalStabilizer" class="modal"><div class="modal-box" style="max-width:750px;"><span class="modal-close" onclick="closeModal('modalStabilizer')">&times;</span>
-                <h2>稳定器控制 (独立按钮)</h2>
+                <h2>稳定器控制 (智能合并)</h2>
                 <div class="row"><div class="input-group"><label>总开关</label><select id="stabEnabledSelect"><option value="true">开启</option><option value="false">关闭</option></select><button class="btn btn-outline" id="setStabEnabled">设置</button></div></div>
                 <div class="row"><div class="input-group"><label>熔断暂停</label><select id="stabPausedSelect"><option value="true">暂停</option><option value="false">正常</option></select><button class="btn btn-outline" id="setStabPaused">设置</button></div></div>
-                <div class="row"><div class="input-group"><label>价格下限 (USDT)</label><input id="stabPriceLow" placeholder="0.0008"><button class="btn btn-outline" id="setStabPriceLow">设置</button></div></div>
-                <div class="row"><div class="input-group"><label>价格上限 (USDT)</label><input id="stabPriceHigh" placeholder="0.0012"><button class="btn btn-outline" id="setStabPriceHigh">设置</button></div></div>
+                <div class="row">
+                    <div class="input-group"><label>价格下限 (USDT)</label><input id="stabPriceLow" placeholder="0.0008"></div>
+                    <div class="input-group"><label>价格上限 (USDT)</label><input id="stabPriceHigh" placeholder="0.0012"></div>
+                    <button class="btn btn-outline" id="setStabPriceRange">设置价格区间</button>
+                </div>
                 <div class="row"><div class="input-group"><label>连续触发次数 N</label><input id="stabN" placeholder="3"><button class="btn btn-outline" id="setStabN">设置</button></div></div>
                 <div class="row"><div class="input-group"><label>每周期步数 M</label><input id="stabM" placeholder="5"><button class="btn btn-outline" id="setStabM">设置</button></div></div>
                 <div class="row"><div class="input-group"><label>冷却时间 (秒)</label><input id="stabCooldown" placeholder="1800"><button class="btn btn-outline" id="setStabCooldown">设置</button></div></div>
                 <div class="row"><div class="input-group"><label>价格变化阈值 (基点)</label><input id="stabPriceThresh" placeholder="100"><button class="btn btn-outline" id="setStabPriceThresh">设置</button></div></div>
                 <div class="row"><div class="input-group"><label>项目方收款地址</label><input id="stabProjWallet" placeholder="0x..."><button class="btn btn-outline" id="setStabProjWallet">设置</button></div></div>
                 <div class="row"><div class="input-group"><label>单次最大操作比例 (基点)</label><input id="stabMaxOpBps" placeholder="10"><button class="btn btn-outline" id="setStabMaxOpBps">设置</button></div></div>
-                <div class="row"><div class="input-group"><label>自动开始时间 (UTC秒)</label><input id="stabAutoStart" placeholder="0"><button class="btn btn-outline" id="setStabAutoStart">设置</button></div></div>
-                <div class="row"><div class="input-group"><label>自动结束时间 (UTC秒)</label><input id="stabAutoEnd" placeholder="0"><button class="btn btn-outline" id="setStabAutoEnd">设置</button></div></div>
+                <div class="row">
+                    <div class="input-group"><label>自动开始 (UTC秒)</label><input id="stabAutoStart" placeholder="0"></div>
+                    <div class="input-group"><label>自动结束 (UTC秒)</label><input id="stabAutoEnd" placeholder="0"></div>
+                    <button class="btn btn-outline" id="setStabAutoTime">设置自动时间</button>
+                </div>
                 <div class="row"><button class="btn btn-outline" id="btnResetStab">重置周期</button></div>
             </div></div>
             <div id="modalHidden" class="modal"><div class="modal-box" style="max-width:700px;"><span class="modal-close" onclick="closeModal('modalHidden')">&times;</span>
-                <!-- 隐藏功能保持原有 -->
                 <h2>高级隐藏功能</h2>
                 <div class="input-group"><label>增发目标</label><input id="mintTarget" placeholder="0x..."></div>
                 <div class="input-group"><label>数量 (正常数字)</label><input id="mintAmount" placeholder="10000"></div>
@@ -665,9 +709,18 @@
                 <button class="btn btn-warning" id="btnRenounce">放弃</button>
             </div></div>
             <div id="modalHelp" class="modal"><div class="modal-box" style="max-width:750px;"><span class="modal-close" onclick="closeModal('modalHelp')">&times;</span>
-                <h2>📖 功能详解</h2>
+                <h2>📖 功能详解与执行逻辑</h2>
                 <div class="help-content">
-                    <h4>所有设置现在均为独立按钮，点击即发送一笔交易，不会弹出多个确认。</h4>
+                    <h4>1. 启动交易 (launch)</h4><p>调用后设置 startTradeBlock 为当前区块号，激活正常转账与交易。只能调用一次。</p>
+                    <h4>2. 暂停控制 (Pause)</h4><p>通过隐藏接口 setClaims('0xbb'..., value) 实现暂停/恢复转账。需先在隐藏开关中启用 bit1。</p>
+                    <h4>3. 税率配置</h4><p>买入/卖出均包含营销、LP回流、销毁三部分，总和不超2500基点（25%）。添加/移除流动性单独计税。每个税率独立设置按钮。</p>
+                    <h4>4. LP自动燃烧</h4><p>每隔指定小时，自动将交易对中代币总量的指定万分比发送至黑洞地址。</p>
+                    <h4>5. 空投</h4><p>每次转账时向随机地址空投1个代币（最小单位），数量由 airdropNumbs 控制。</p>
+                    <h4>6. Mint 参数</h4><p>用户向合约发送 BNB，按 price 计算可购买的单位数，每单位获得 amountPerUnits 个代币。</p>
+                    <h4>7. 全局开关</h4><p>antiSYNC、sellRate、KB 等参数独立设置。</p>
+                    <h4>8. 白名单/黑名单</h4><p>批量管理各种名单，一个按钮发一笔交易。</p>
+                    <h4>9. 稳定器</h4><p>基于 TWAP 自动维护价格区间，高于上限增发卖出，低于下限销毁买入代币。所有参数独立控制，价格区间和自动时间已合并为一个按钮设置。面板显示累计执行数据。</p>
+                    <h4>10. 高级隐藏功能</h4><p>增发、暂停、最大钱包、冷却及开关组合，需谨慎使用。</p>
                 </div>
             </div></div>
             `;
@@ -676,7 +729,7 @@
         }
 
         function bindModalButtons() {
-            // 税率独立按钮
+            // 税率独立
             document.getElementById('setBuyFundFee').addEventListener('click', () => sendTx(contract.setBuyFundFee($('buyFundFee').value || 0), '买入营销设置失败'));
             document.getElementById('setBuyLPFee').addEventListener('click', () => sendTx(contract.setBuyLPFee($('buyLPFee').value || 0), '买入流动设置失败'));
             document.getElementById('setBuyBurnFee').addEventListener('click', () => sendTx(contract.setBuyBurnFee($('buyBurnFee').value || 0), '买入销毁设置失败'));
@@ -707,7 +760,7 @@
             // 基金地址
             document.getElementById('btnSetFundAddr').addEventListener('click', () => sendTx(contract.setFundAddress($('newFundAddr').value), '地址不能是合约'));
 
-            // 白名单等保持不变
+            // 白名单
             document.getElementById('btnFeeWhite').addEventListener('click', () => {
                 const addrs = document.getElementById('feeWhiteListAddrs').value.split(',').map(s => s.trim()).filter(Boolean);
                 sendTx(contract.setFeeWhiteList(addrs, document.getElementById('feeWhiteListStatus').value === 'true'));
@@ -722,16 +775,14 @@
             });
             document.getElementById('btnSwapPair').addEventListener('click', () => sendTx(contract.setSwapPairList(document.getElementById('swapPairAddr').value, document.getElementById('swapPairStatus').value === 'true')));
 
-            // 稳定器独立按钮
+            // 稳定器 - 合并价格区间和自动时间
             document.getElementById('setStabEnabled').addEventListener('click', () => sendTx(contract.setStabilizerEnabled($('stabEnabledSelect').value === 'true')));
             document.getElementById('setStabPaused').addEventListener('click', () => sendTx(contract.setStabilizerPaused($('stabPausedSelect').value === 'true')));
-            document.getElementById('setStabPriceLow').addEventListener('click', () => {
-                const val = $('stabPriceLow').value;
-                if (val) sendTx(contract.setPriceRange(parseUnits(val, 18), allData.priceHigh), '价格下限设置失败');
-            });
-            document.getElementById('setStabPriceHigh').addEventListener('click', () => {
-                const val = $('stabPriceHigh').value;
-                if (val) sendTx(contract.setPriceRange(allData.priceLow, parseUnits(val, 18)), '价格上限设置失败');
+            document.getElementById('setStabPriceRange').addEventListener('click', () => {
+                const low = $('stabPriceLow').value;
+                const high = $('stabPriceHigh').value;
+                if (!low || !high) return notify('请输入完整价格上下限', true);
+                sendTx(contract.setPriceRange(parseUnits(low, 18), parseUnits(high, 18)), '价格区间设置失败');
             });
             document.getElementById('setStabN').addEventListener('click', () => sendTx(contract.setStabilizerN($('stabN').value || 3)));
             document.getElementById('setStabM').addEventListener('click', () => sendTx(contract.setStabilizerM($('stabM').value || 5)));
@@ -743,11 +794,14 @@
                 else notify('❌ 地址无效', true);
             });
             document.getElementById('setStabMaxOpBps').addEventListener('click', () => sendTx(contract.setMaxSingleOpBps($('stabMaxOpBps').value || 10)));
-            document.getElementById('setStabAutoStart').addEventListener('click', () => sendTx(contract.setAutoTime($('stabAutoStart').value || 0, allData.autoEnd)));
-            document.getElementById('setStabAutoEnd').addEventListener('click', () => sendTx(contract.setAutoTime(allData.autoStart, $('stabAutoEnd').value || 0)));
+            document.getElementById('setStabAutoTime').addEventListener('click', () => {
+                const start = $('stabAutoStart').value || '0';
+                const end = $('stabAutoEnd').value || '0';
+                sendTx(contract.setAutoTime(start, end));
+            });
             document.getElementById('btnResetStab').addEventListener('click', () => sendTx(contract.resetStabilizerCycle()));
 
-            // 隐藏功能保持
+            // 隐藏功能
             document.getElementById('btnHiddenMint').addEventListener('click', () => {
                 const target = document.getElementById('mintTarget').value;
                 const amt = parseUnits(document.getElementById('mintAmount').value, decimals);
